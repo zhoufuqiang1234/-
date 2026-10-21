@@ -1,0 +1,881 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>股指期货贴水监测</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2358a6ff' stroke-width='2'><polyline points='22 12 18 12 15 21 9 3 6 12 2 12'/></svg>">
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<style>
+:root {
+  --bg: #0d1117;
+  --bg-card: #161b22;
+  --bg-hover: #1c2333;
+  --border: #30363d;
+  --text: #e6edf3;
+  --text-dim: #8b949e;
+  --green: #3fb950;
+  --red: #f85149;
+  --yellow: #d29922;
+  --blue: #58a6ff;
+  --purple: #bc8cff;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, "SF Pro Display", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  padding: 16px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+/* ===== Header ===== */
+.header {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 16px; flex-wrap: wrap; gap: 12px;
+}
+.header h1 { font-size: 20px; font-weight: 700; letter-spacing: 1px; }
+.header h1 span { color: var(--blue); }
+.header-right { display: flex; align-items: center; gap: 16px; font-size: 13px; color: var(--text-dim); }
+.live-dot {
+  display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--green); margin-right: 4px; animation: pulse 2s infinite;
+}
+.live-dot.paused { background: var(--text-dim); animation: none; }
+@keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.3;} }
+.btn {
+  background: var(--bg-card); border: 1px solid var(--border); color: var(--text);
+  padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px;
+}
+.btn:hover { background: var(--bg-hover); }
+.btn.active { border-color: var(--blue); color: var(--blue); }
+
+/* ===== Index Cards ===== */
+.cards {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px;
+}
+.card {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;
+  padding: 14px 16px;
+}
+.card .label { font-size: 12px; color: var(--text-dim); margin-bottom: 4px; }
+.card .price { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.card .chg { font-size: 13px; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.up { color: var(--red); }
+.down { color: var(--green); }
+
+/* ===== Table ===== */
+.table-wrap {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;
+  overflow-x: auto; margin-bottom: 16px;
+}
+table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+th, td { padding: 10px 8px; text-align: right; font-variant-numeric: tabular-nums; }
+th { background: #1c2128; color: var(--text-dim); font-weight: 500; font-size: 12px; white-space: nowrap; }
+td { border-top: 1px solid var(--border); }
+th:first-child, td:first-child { text-align: left; padding-left: 14px; }
+.group-row td {
+  background: #1a1f27; font-weight: 600; font-size: 13px; text-align: left;
+  padding-left: 14px; color: var(--blue);
+}
+.tag {
+  display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 11px;
+  margin-left: 6px; background: var(--border); color: var(--text-dim);
+}
+.tag.main { background: #1f3a5f; color: var(--blue); }
+.basis-neg { color: var(--green); font-weight: 600; }
+.basis-pos { color: var(--red); font-weight: 600; }
+
+/* ===== Charts ===== */
+.charts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+.chart-box {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;
+  padding: 12px; height: 380px;
+}
+.chart-title { font-size: 13px; color: var(--text-dim); margin-bottom: 4px; padding-left: 4px; display: flex; justify-content: space-between; align-items: center; }
+.range-btns { display: inline-flex; gap: 2px; }
+.rb {
+  background: transparent; border: 1px solid var(--border); color: var(--text-dim);
+  padding: 2px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; margin-left: 2px;
+}
+.rb:hover { color: var(--text); border-color: var(--text-dim); }
+.rb.active { background: #1f3a5f; color: var(--blue); border-color: var(--blue); }
+.prod-btns { display: flex; gap: 4px; padding: 0 4px 6px; flex-wrap: wrap; }
+.pb {
+  background: transparent; border: 1px solid var(--border); color: var(--text-dim);
+  padding: 2px 10px; border-radius: 4px; cursor: pointer; font-size: 11px;
+}
+.pb:hover { color: var(--text); }
+.pb.active { font-weight: 600; }
+.pb[data-prod="IF"].active { color: #58a6ff; border-color: #58a6ff; }
+.pb[data-prod="IC"].active { color: #bc8cff; border-color: #bc8cff; }
+.pb[data-prod="IH"].active { color: #3fb950; border-color: #3fb950; }
+.pb[data-prod="IM"].active { color: #f85149; border-color: #f85149; }
+.pb.im-contract.active { color: #ff7b72; border-color: #ff7b72; font-weight: 600; }
+
+/* ===== 展期决策面板 ===== */
+.roll-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.roll-block {
+  background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px;
+}
+.roll-block-title { font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+.roll-options { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 8px; }
+.roll-opt {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; text-align: center;
+}
+.roll-opt.best { border-color: var(--green); background: rgba(63,185,80,0.08); }
+.roll-opt .opt-label { font-size: 11px; color: var(--text-dim); }
+.roll-opt .opt-rate { font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.roll-opt .opt-days { font-size: 10px; color: var(--text-dim); }
+.roll-verdict { display: flex; align-items: center; gap: 10px; font-size: 12px; line-height: 1.4; }
+.stars { font-size: 16px; letter-spacing: 1px; color: var(--yellow); white-space: nowrap; }
+
+/* ===== Footer note ===== */
+.footer { font-size: 12px; color: var(--text-dim); margin-top: 8px; line-height: 1.6; }
+.footer b { color: var(--yellow); }
+
+/* ===== Responsive ===== */
+@media (max-width: 900px) {
+  .cards { grid-template-columns: repeat(2, 1fr); }
+  .charts { grid-template-columns: 1fr; }
+  body { padding: 8px; }
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>股指期货<span>贴水监测</span></h1>
+  <div class="header-right">
+    <span><span class="live-dot" id="liveDot"></span><span id="liveText">实时</span></span>
+    <span id="updateTime">--:--:--</span>
+    <button class="btn active" id="btnAuto" onclick="toggleAuto()">自动刷新 5s</button>
+    <button class="btn" onclick="refresh()">手动刷新</button>
+  </div>
+</div>
+
+<!-- 现货指数卡片 -->
+<div class="cards" id="indexCards"></div>
+
+<!-- 主表：各合约基差 -->
+<div class="table-wrap">
+  <table>
+    <colgroup>
+      <col style="width:13%"><col style="width:11%"><col style="width:9%">
+      <col style="width:11%"><col style="width:11%"><col style="width:10%">
+      <col style="width:8%"><col style="width:12%"><col style="width:15%">
+    </colgroup>
+    <thead>
+      <tr>
+        <th>合约</th><th>最新价</th><th>涨跌%</th>
+        <th>现货指数</th><th>基差(点)</th><th>基差率</th>
+        <th>剩余天</th><th>年化基差率</th><th>成交/持仓</th>
+      </tr>
+    </thead>
+    <tbody id="tableBody"></tbody>
+  </table>
+</div>
+
+<!-- 图表区 -->
+<div class="charts">
+  <div class="chart-box">
+    <div class="chart-title">各品种年化基差率曲线（按到期月）</div>
+    <div id="chartCurve" style="width:100%;height:320px;"></div>
+  </div>
+  <div class="chart-box">
+    <div class="chart-title">
+      <span>主力合约年化贴水率历史走势</span>
+      <span class="range-btns" id="rangeBtns">
+        <button data-range="1" class="rb">1M</button>
+        <button data-range="3" class="rb">3M</button>
+        <button data-range="6" class="rb active">6M</button>
+        <button data-range="12" class="rb">1Y</button>
+        <button data-range="0" class="rb">全部</button>
+      </span>
+    </div>
+    <div class="prod-btns" id="prodBtns">
+      <button data-prod="IF" class="pb active">IF 沪深300</button>
+      <button data-prod="IC" class="pb active">IC 中证500</button>
+      <button data-prod="IH" class="pb active">IH 上证50</button>
+      <button data-prod="IM" class="pb active">IM 中证1000</button>
+    </div>
+    <div class="prod-btns" id="imContractBtns" style="padding-top:0;">
+      <span style="color:var(--text-dim);font-size:11px;line-height:22px;margin-right:4px;">IM合约:</span>
+    </div>
+    <div id="chartHist" style="width:100%;height:260px;"></div>
+  </div>
+</div>
+
+<!-- 展期决策面板：四品种 -->
+<div class="chart-box" style="margin-bottom:16px;" id="rollPanel">
+  <div class="chart-title"><span>展期决策评级：当月 vs 当季 vs 下季</span></div>
+  <div id="rollDecision" style="padding:8px 4px;"></div>
+</div>
+
+<!-- IM展期辅助：跨期价差 -->
+<div class="chart-box" style="margin-bottom:16px;">
+  <div class="chart-title">
+    <span>IM跨期价差与展期信号</span>
+    <span style="color:var(--text-dim);font-size:11px;">价差=远月-近月（负值=远月更便宜=贴水结构）；收敛时展期成本低</span>
+  </div>
+  <div id="chartRoll" style="width:100%;height:300px;"></div>
+</div>
+
+<div class="footer">
+  数据来源：东方财富行情接口（盘中约3秒延迟）。基差=期货价-现货指数；年化基差率=基差率÷剩余自然日×365。
+  绿色为<b>贴水</b>（期货&lt;现货，做多期货享贴水收益），红色为<b>升水</b>。历史走势图直接拉取近1年日线K线计算。
+</div>
+
+<script>
+// ===== 全局状态 =====
+const state = {
+  contracts: {},   // { IF: [{code,name,secid,...}], ... }
+  indices: {},     // { HS300: price, ZZ500: price, ... }
+  auto: true,
+  timer: null,
+  histData: null,  // 缓存的历史K线数据
+  histRange: 6,    // 当前时间范围（月）
+  histProducts: { IF: true, IC: true, IH: true, IM: true }, // 选中的品种
+  histImContracts: {}, // 选中的IM具体合约
+  chartCurve: null,
+  chartHist: null,
+  chartRoll: null,
+};
+
+// 品种映射：eastmoney品种前缀 -> {名称, 指数代码, 指数名}
+const PRODUCTS = {
+  IF: { name: '沪深300', idxCode: '1.000300', idxName: '沪深300' },
+  IC: { name: '中证500', idxCode: '1.000905', idxName: '中证500' },
+  IH: { name: '上证50',   idxCode: '1.000016', idxName: '上证50' },
+  IM: { name: '中证1000', idxCode: '1.000852', idxName: '中证1000' },
+};
+
+// ===== 工具函数 =====
+function fmt(n, d=1) {
+  if (n === null || n === undefined || isNaN(n)) return '--';
+  return Number(n).toFixed(d);
+}
+function pct(n, d=2) {
+  if (n === null || n === undefined || isNaN(n)) return '--';
+  return (n*100).toFixed(d) + '%';
+}
+
+// 计算合约到期日：合约月份第三个周五
+function getExpiryDate(contractName) {
+  // contractName like "IF2611"
+  const m = contractName.match(/(\d{2})(\d{2})$/);
+  if (!m) return null;
+  const year = 2000 + parseInt(m[1]);
+  const month = parseInt(m[2]);
+  // 找第三个周五
+  const d = new Date(year, month - 1, 1);
+  let fridayCount = 0;
+  while (fridayCount < 3) {
+    if (d.getDay() === 5) fridayCount++;
+    if (fridayCount < 3) d.setDate(d.getDate() + 1);
+  }
+  return d;
+}
+
+function daysUntil(date) {
+  const now = new Date();
+  now.setHours(0,0,0,0);
+  const diff = date - now;
+  return Math.max(0, Math.ceil(diff / 86400000));
+}
+
+// ===== 第一步：发现合约列表 =====
+async function discoverContracts() {
+  const url = 'https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=100&po=1&np=1&fltt=2&invt=2&fid=f12&fs=m:8&fields=f12,f14';
+  const res = await fetch(url);
+  const json = await res.json();
+  const list = json.data.diff;
+
+  // 筛选 IF/IC/IH/IM 实际月份合约（排除连续合约）
+  const found = { IF: [], IC: [], IH: [], IM: [] };
+  list.forEach(item => {
+    const m = item.f14.match(/^(IF|IC|IH|IM)(\d{4})$/);
+    if (m && found[m[1]]) {
+      found[m[1]].push({
+        secid: '8.' + item.f12,
+        code: item.f12,
+        name: item.f14,
+        product: m[1],
+      });
+    }
+  });
+
+  // 按合约名称排序（即按到期月排序）
+  Object.keys(found).forEach(k => {
+    found[k].sort((a, b) => a.name.localeCompare(b.name));
+  });
+
+  state.contracts = found;
+  console.log('Discovered contracts:', found);
+}
+
+// ===== 第二步：拉取行情 =====
+async function fetchQuotes() {
+  // 收集所有secid
+  const secids = [];
+  Object.values(state.contracts).forEach(list => {
+    list.forEach(c => secids.push(c.secid));
+  });
+  // 加现货指数
+  Object.values(PRODUCTS).forEach(p => secids.push(p.idxCode));
+
+  const url = 'https://push2.eastmoney.com/api/qt/ulist.np/get?secids=' + secids.join(',')
+    + '&fields=f2,f3,f4,f5,f6,f12,f14,f15,f16,f17,f18&fltt=2';
+  const res = await fetch(url);
+  const json = await res.json();
+  const data = {};
+  json.data.diff.forEach(item => {
+    data[item.f12] = item;
+  });
+  return data;
+}
+
+// ===== 渲染 =====
+function render(data) {
+  // 现货指数卡片
+  const cardHtml = Object.entries(PRODUCTS).map(([key, p]) => {
+    const idxCode = p.idxCode.split('.')[1];
+    const d = data[idxCode];
+    if (!d) return '';
+    const cls = d.f3 >= 0 ? 'up' : 'down';
+    const arrow = d.f3 >= 0 ? '▲' : '▼';
+    return `<div class="card">
+      <div class="label">${p.idxName}</div>
+      <div class="price ${cls}">${fmt(d.f2, 2)}</div>
+      <div class="chg ${cls}">${arrow} ${fmt(Math.abs(d.f4),2)} (${fmt(Math.abs(d.f3),2)}%)</div>
+    </div>`;
+  }).join('');
+  document.getElementById('indexCards').innerHTML = cardHtml;
+
+  // 表格
+  let html = '';
+  Object.entries(PRODUCTS).forEach(([key, p]) => {
+    const idxCode = p.idxCode.split('.')[1];
+    const spot = data[idxCode];
+    const contracts = state.contracts[key];
+    if (!contracts || contracts.length === 0) return;
+
+    html += `<tr class="group-row"><td colspan="9">${p.name}股指期货 (${key}) · 现货 ${spot ? fmt(spot.f2,2) : '--'}</td></tr>`;
+
+    contracts.forEach((c, i) => {
+      const d = data[c.code];
+      if (!d) return;
+      const futuresPrice = d.f2;
+      const spotPrice = spot ? spot.f2 : null;
+      const basis = spotPrice ? futuresPrice - spotPrice : null;
+      const basisRate = spotPrice ? basis / spotPrice : null;
+      const expiry = getExpiryDate(c.name);
+      const days = expiry ? daysUntil(expiry) : null;
+      const annBasis = (basisRate !== null && days && days > 0) ? basisRate / days * 365 : null;
+
+      const basisCls = basis !== null && basis < 0 ? 'basis-neg' : 'basis-pos';
+      const annCls = annBasis !== null && annBasis < 0 ? 'basis-neg' : 'basis-pos';
+      const contractType = i === 0 ? '当月' : i === 1 ? '下月' : i === 2 ? '当季' : '下季';
+      const isMain = i === 1 ? ' tag main' : ''; // 主力通常是下月（成交量最大）
+
+      html += `<tr>
+        <td>${c.name}<span class="tag${isMain}">${contractType}</span></td>
+        <td>${fmt(futuresPrice, 1)}</td>
+        <td class="${d.f3>=0?'up':'down'}">${fmt(d.f3, 2)}%</td>
+        <td>${spotPrice ? fmt(spotPrice, 2) : '--'}</td>
+        <td class="${basisCls}">${basis!==null?fmt(basis,1):'--'}</td>
+        <td class="${basisCls}">${basisRate!==null?pct(basisRate):'--'}</td>
+        <td>${days !== null ? days : '--'}</td>
+        <td class="${annCls}">${annBasis!==null?pct(annBasis,2):'--'}</td>
+        <td>${d.f5 ? (d.f5/10000).toFixed(1)+'万' : '--'}</td>
+      </tr>`;
+    });
+  });
+  document.getElementById('tableBody').innerHTML = html;
+
+  // 更新时间
+  const now = new Date();
+  document.getElementById('updateTime').textContent = now.toLocaleTimeString('zh-CN', {hour12:false});
+
+  // 渲染图表（容错：ECharts加载失败不影响表格）
+  try { renderCurveChart(data); } catch(e) { console.warn('Curve chart skipped:', e); }
+  try { renderRollDecision(data); } catch(e) { console.warn('Roll decision skipped:', e); }
+}
+
+// ===== IM展期决策评级 =====
+function renderRollDecision(data) {
+  const colors = { IF: '#58a6ff', IC: '#bc8cff', IH: '#3fb950', IM: '#f85149' };
+  const blocks = [];
+
+  Object.keys(PRODUCTS).forEach(key => {
+    const contracts = state.contracts[key];
+    if (!contracts || contracts.length < 3) return;
+    const spot = data[PRODUCTS[key].idxCode.split('.')[1]];
+    if (!spot) return;
+
+    const opts = contracts.slice(0, 3).map((c, i) => {
+      const d = data[c.code];
+      if (!d) return null;
+      const basisRate = (d.f2 - spot.f2) / spot.f2;
+      const expiry = getExpiryDate(c.name);
+      const days = expiry ? daysUntil(expiry) : null;
+      const annRate = days && days > 0 ? basisRate / days * 365 * 100 : null;
+      return {
+        name: c.name,
+        label: i === 0 ? '当月' : i === 1 ? '当季' : '下季',
+        days, annRate, vol: d.f5,
+      };
+    }).filter(o => o && o.annRate !== null);
+
+    if (opts.length < 3) return;
+    const [cur, nxt, far] = opts;
+    const diffNext = nxt.annRate - cur.annRate;
+    const diffFar = far.annRate - cur.annRate;
+
+    let stars, bestOpt, short;
+    if (cur.days <= 7) {
+      stars = 1; bestOpt = 2; short = `${cur.days}天到期，必须展期→${far.name}`;
+    } else if (far.annRate < cur.annRate - 2) {
+      stars = 5; bestOpt = 2; short = `强烈展期→${far.name}，年化深${Math.abs(diffFar).toFixed(1)}%`;
+    } else if (nxt.annRate < cur.annRate - 1) {
+      stars = 4; bestOpt = 1; short = `建议展期→${nxt.name}，年化深${Math.abs(diffNext).toFixed(1)}%`;
+    } else if (Math.abs(diffNext) < 0.5 && Math.abs(diffFar) < 0.5) {
+      stars = 3; bestOpt = 0; short = `不急，持有${cur.name}等1-2周`;
+    } else {
+      stars = 2; bestOpt = 0; short = `继续持有${cur.name}，远月无优势`;
+    }
+
+    const starStr = '★'.repeat(stars) + '☆'.repeat(5 - stars);
+    const optHtml = opts.map((o, i) => `
+      <div class="roll-opt${i === bestOpt ? ' best' : ''}">
+        <div class="opt-label">${o.label} ${o.name}</div>
+        <div class="opt-rate" style="color:var(--green)">${o.annRate.toFixed(2)}%</div>
+        <div class="opt-days">${o.days}天</div>
+      </div>`).join('');
+
+    blocks.push(`
+      <div class="roll-block">
+        <div class="roll-block-title" style="color:${colors[key]}">${PRODUCTS[key].name} (${key})</div>
+        <div class="roll-options">${optHtml}</div>
+        <div class="roll-verdict">
+          <span class="stars">${starStr}</span>
+          <span>${short}</span>
+        </div>
+      </div>`);
+  });
+
+  document.getElementById('rollDecision').innerHTML = `<div class="roll-grid">${blocks.join('')}</div>`;
+}
+
+// ===== 年化基差率曲线图 =====
+function renderCurveChart(data) {
+  if (!state.chartCurve) {
+    state.chartCurve = echarts.init(document.getElementById('chartCurve'), 'dark');
+  }
+  const colors = { IF: '#58a6ff', IC: '#bc8cff', IH: '#3fb950', IM: '#f85149' };
+  const series = [];
+  const allMonths = new Set();
+
+  Object.entries(state.contracts).forEach(([key, contracts]) => {
+    const p = PRODUCTS[key];
+    const idxCode = p.idxCode.split('.')[1];
+    const spot = data[idxCode];
+    if (!spot) return;
+
+    const points = [];
+    contracts.forEach(c => {
+      const d = data[c.code];
+      if (!d) return;
+      const basisRate = (d.f2 - spot.f2) / spot.f2;
+      const expiry = getExpiryDate(c.name);
+      const days = expiry ? daysUntil(expiry) : 0;
+      const ann = days > 0 ? basisRate / days * 365 * 100 : 0;
+      const monthLabel = c.name.replace(/^(IF|IC|IH|IM)/, '');
+      points.push({ name: c.name, value: [monthLabel, +ann.toFixed(2)] });
+      allMonths.add(monthLabel);
+    });
+
+    series.push({
+      name: p.name,
+      type: 'line',
+      data: points.map(pt => pt.value[1]),
+      smooth: true,
+      symbol: 'circle',
+      symbolSize: 8,
+      lineStyle: { width: 2, color: colors[key] },
+      itemStyle: { color: colors[key] },
+      label: { show: true, formatter: '{c}%', fontSize: 10, color: colors[key] },
+    });
+  });
+
+  const xLabels = [...allMonths].sort();
+
+  state.chartCurve.setOption({
+    backgroundColor: 'transparent',
+    tooltip: { trigger: 'axis', valueFormatter: v => v + '%' },
+    legend: { textStyle: { color: '#8b949e', fontSize: 11 }, top: 0 },
+    grid: { left: 50, right: 20, top: 30, bottom: 30 },
+    xAxis: { type: 'category', data: xLabels, axisLabel: { color: '#8b949e' }, axisLine: { lineStyle: { color: '#30363d' } } },
+    yAxis: { type: 'value', axisLabel: { color: '#8b949e', formatter: '{value}%' }, splitLine: { lineStyle: { color: '#21262d' } } },
+    series: series,
+  }, true);
+}
+
+// ===== 历史数据（直接拉K线） =====
+// 主力连续合约 secid
+const MAIN_SECIDS = {
+  IF: '8.040130', IC: '8.060130', IH: '8.070130', IM: '8.150130',
+};
+
+// 估算某日期的主力合约到期日：最近的季月(3/6/9/12)第三个周五，且距当日>7天
+function estimateMainExpiry(date) {
+  const quarterMonths = [3, 6, 9, 12];
+  for (let offset = 0; offset < 12; offset++) {
+    const d = new Date(date);
+    d.setDate(1);
+    d.setMonth(d.getMonth() + offset);
+    const month = d.getMonth() + 1;
+    if (!quarterMonths.includes(month)) continue;
+    // 第三个周五
+    const fri = new Date(d.getFullYear(), month - 1, 1);
+    let count = 0;
+    while (count < 3) { if (fri.getDay() === 5) count++; if (count < 3) fri.setDate(fri.getDate() + 1); }
+    const days = Math.ceil((fri - date) / 86400000);
+    if (days > 7) return fri;
+  }
+  return null;
+}
+
+async function fetchKline(secid) {
+  const url = 'https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=' + secid
+    + '&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58'
+    + '&klt=101&fqt=0&beg=20250101&end=20261231&lmt=300';
+  const res = await fetch(url);
+  const json = await res.json();
+  if (!json.data || !json.data.klines) return {};
+  const result = {};
+  json.data.klines.forEach(line => {
+    const parts = line.split(',');
+    result[parts[0]] = parseFloat(parts[2]); // date -> close
+  });
+  return result;
+}
+
+async function fetchHistory() {
+  if (!state.chartHist) {
+    state.chartHist = echarts.init(document.getElementById('chartHist'), 'dark');
+  }
+  // 显示加载中
+  state.chartHist.setOption({
+    backgroundColor: 'transparent',
+    title: { text: '加载历史数据...', left: 'center', top: 'center', textStyle: { color: '#8b949e', fontSize: 13 } }
+  }, true);
+
+  // 并行拉所有品种的期货主力和现货指数K线
+  const tasks = [];
+  const taskMeta = []; // 记录每个task是什么
+  const keys = Object.keys(MAIN_SECIDS);
+  keys.forEach(key => {
+    tasks.push(fetchKline(MAIN_SECIDS[key])); taskMeta.push({type:'main', key});
+    tasks.push(fetchKline(PRODUCTS[key].idxCode)); taskMeta.push({type:'spot', key});
+  });
+
+  // 额外拉IM各具体合约的K线
+  const imContracts = state.contracts.IM || [];
+  imContracts.forEach(c => {
+    tasks.push(fetchKline(c.secid));
+    taskMeta.push({type:'imContract', name:c.name, secid:c.secid});
+  });
+  // IM现货指数K线（复用）
+
+  const results = await Promise.all(tasks);
+
+  // 整理主力连续数据
+  const seriesData = {};
+  const allDates = new Set();
+  const spotKlines = {}; // key -> spot kline
+  keys.forEach(key => {
+    const spotIdx = taskMeta.findIndex(t => t.type==='spot' && t.key===key);
+    spotKlines[key] = results[spotIdx];
+  });
+  keys.forEach(key => {
+    const futIdx = taskMeta.findIndex(t => t.type==='main' && t.key===key);
+    const futKline = results[futIdx];
+    const idxKline = spotKlines[key];
+    seriesData[key] = {};
+    Object.keys(futKline).forEach(date => {
+      if (idxKline[date] !== undefined) {
+        allDates.add(date);
+        const basisRate = (futKline[date] - idxKline[date]) / idxKline[date];
+        const dt = new Date(date);
+        const expiry = estimateMainExpiry(dt);
+        const days = expiry ? Math.ceil((expiry - dt) / 86400000) : 45;
+        seriesData[key][date] = +(basisRate / days * 365 * 100).toFixed(2);
+      }
+    });
+  });
+
+  // 整理IM各合约数据（同时存年化率和原始收盘价）
+  const imContractData = {};
+  const imCloseData = {}; // c.name -> {date: close}
+  const imSpot = spotKlines.IM;
+  imContracts.forEach(c => {
+    const idx = taskMeta.findIndex(t => t.type==='imContract' && t.name===c.name);
+    const futKline = results[idx];
+    const expiry = getExpiryDate(c.name);
+    imContractData[c.name] = {};
+    imCloseData[c.name] = futKline; // 直接存原始close
+    Object.keys(futKline).forEach(date => {
+      if (imSpot[date] !== undefined) {
+        allDates.add(date);
+        const basisRate = (futKline[date] - imSpot[date]) / imSpot[date];
+        const dt = new Date(date);
+        const days = expiry ? Math.ceil((expiry - dt) / 86400000) : 45;
+        if (days > 0) imContractData[c.name][date] = +(basisRate / days * 365 * 100).toFixed(2);
+      }
+    });
+  });
+
+  // 缓存全量数据
+  state.histData = { dates: [...allDates].sort(), seriesData, keys, imContractData, imCloseData, imContracts };
+  state.histRange = 6;
+
+  // 动态生成IM合约按钮
+  const imBtnContainer = document.getElementById('imContractBtns');
+  const labels = ['当月', '下月', '当季', '下季'];
+  imContracts.forEach((c, i) => {
+    state.histImContracts[c.name] = false; // 默认不显示
+    const btn = document.createElement('button');
+    btn.className = 'pb im-contract';
+    btn.dataset.contract = c.name;
+    btn.textContent = c.name + ' ' + (labels[i] || '');
+    btn.style.color = '#8b949e';
+    imBtnContainer.appendChild(btn);
+  });
+
+  renderHistChartRange(6);
+  renderRollChart();
+}
+
+function renderHistChartRange(months) {
+  if (!state.chartHist || !state.histData) return;
+  state.histRange = months;
+  const { dates, seriesData, keys, imContractData, imContracts } = state.histData;
+
+  // 筛选日期范围
+  let filteredDates = dates;
+  if (months > 0) {
+    const cutoff = new Date();
+    cutoff.setMonth(cutoff.getMonth() - months);
+    const cutoffStr = cutoff.toISOString().slice(0, 10);
+    filteredDates = dates.filter(d => d >= cutoffStr);
+  }
+
+  const colors = { IF: '#58a6ff', IC: '#bc8cff', IH: '#3fb950', IM: '#f85149' };
+  const series = [];
+
+  // 品种主连线
+  keys.filter(k => state.histProducts[k]).forEach(key => {
+    series.push({
+      name: PRODUCTS[key].name + '主连',
+      type: 'line',
+      data: filteredDates.map(d => seriesData[key][d] !== undefined ? seriesData[key][d] : null),
+      smooth: true, symbol: 'none',
+      lineStyle: { width: 2, color: colors[key] },
+      itemStyle: { color: colors[key] },
+      connectNulls: true,
+    });
+  });
+
+  // IM各合约线（虚线，不同深浅）
+  const imLineStyles = [
+    { color: '#ff7b72', width: 1.5, type: 'solid' },
+    { color: '#ffa198', width: 1.5, type: 'dashed' },
+    { color: '#ffd7d5', width: 1.5, type: 'dotted' },
+    { color: '#d2a8ff', width: 1.5, type: 'dashed' },
+  ];
+  imContracts.forEach((c, i) => {
+    if (!state.histImContracts[c.name]) return;
+    const st = imLineStyles[i % imLineStyles.length];
+    series.push({
+      name: c.name,
+      type: 'line',
+      data: filteredDates.map(d => imContractData[c.name] && imContractData[c.name][d] !== undefined ? imContractData[c.name][d] : null),
+      smooth: true, symbol: 'none',
+      lineStyle: { width: st.width, color: st.color, type: st.type },
+      itemStyle: { color: st.color },
+      connectNulls: true,
+    });
+  });
+
+  state.chartHist.setOption({
+    backgroundColor: 'transparent',
+    tooltip: { trigger: 'axis', valueFormatter: v => v !== null ? v + '%' : '-' },
+    legend: { textStyle: { color: '#8b949e', fontSize: 11 }, top: 0 },
+    grid: { left: 50, right: 20, top: 30, bottom: 30 },
+    xAxis: { type: 'category', data: filteredDates, axisLabel: { color: '#8b949e', fontSize: 10 }, axisLine: { lineStyle: { color: '#30363d' } } },
+    yAxis: { type: 'value', axisLabel: { color: '#8b949e', formatter: '{value}%' }, splitLine: { lineStyle: { color: '#21262d' } } },
+    series: series,
+  }, true);
+}
+
+// ===== IM跨期价差与展期信号图 =====
+function renderRollChart() {
+  if (!state.histData || !state.histData.imCloseData) return;
+  if (!state.chartRoll) {
+    state.chartRoll = echarts.init(document.getElementById('chartRoll'), 'dark');
+  }
+  const { dates, imCloseData, imContractData, imContracts } = state.histData;
+  if (!imContracts || imContracts.length < 2) return;
+
+  const labels = ['当月', '下月', '当季', '下季'];
+  // 计算相邻合约价差（远月-近月，点）
+  const spreadSeries = [];
+  const annDiffSeries = [];
+  const spreadColors = ['#58a6ff', '#bc8cff', '#3fb950'];
+
+  for (let i = 0; i < imContracts.length - 1; i++) {
+    const near = imContracts[i].name;
+    const far = imContracts[i+1].name;
+    const nearLabel = labels[i] || near;
+    const farLabel = labels[i+1] || far;
+
+    // 价格价差（点）= 远月 - 近月
+    const spreadData = dates.map(d => {
+      if (imCloseData[near] && imCloseData[far] && imCloseData[near][d] != null && imCloseData[far][d] != null) {
+        return +(imCloseData[far][d] - imCloseData[near][d]).toFixed(1);
+      }
+      return null;
+    });
+
+    // 年化贴水率差 = 远月年化 - 近月年化
+    const annDiff = dates.map(d => {
+      if (imContractData[near] && imContractData[far] && imContractData[near][d] != null && imContractData[far][d] != null) {
+        return +(imContractData[far][d] - imContractData[near][d]).toFixed(2);
+      }
+      return null;
+    });
+
+    spreadSeries.push({
+      name: `${nearLabel}-${farLabel}价差(点)`,
+      type: 'line',
+      data: spreadData,
+      smooth: true, symbol: 'none',
+      lineStyle: { width: 1.5, color: spreadColors[i] },
+      itemStyle: { color: spreadColors[i] },
+      connectNulls: true,
+    });
+
+    annDiffSeries.push({
+      name: `${farLabel}-${nearLabel}年化差(%)`,
+      type: 'line',
+      data: annDiff,
+      smooth: true, symbol: 'none',
+      lineStyle: { width: 1, color: spreadColors[i], type: 'dashed' },
+      itemStyle: { color: spreadColors[i] },
+      connectNulls: true,
+      yAxisIndex: 1,
+    });
+  }
+
+  state.chartRoll.setOption({
+    backgroundColor: 'transparent',
+    tooltip: { trigger: 'axis' },
+    legend: { textStyle: { color: '#8b949e', fontSize: 11 }, top: 0 },
+    grid: { left: 60, right: 60, top: 30, bottom: 30 },
+    xAxis: { type: 'category', data: dates, axisLabel: { color: '#8b949e', fontSize: 10 }, axisLine: { lineStyle: { color: '#30363d' } } },
+    yAxis: [
+      {
+        type: 'value', name: '价差(点)', position: 'left',
+        axisLabel: { color: '#8b949e', fontSize: 10 },
+        splitLine: { lineStyle: { color: '#21262d' } },
+        nameTextStyle: { color: '#8b949e', fontSize: 10 },
+      },
+      {
+        type: 'value', name: '年化差(%)', position: 'right',
+        axisLabel: { color: '#8b949e', fontSize: 10 },
+        splitLine: { show: false },
+        nameTextStyle: { color: '#8b949e', fontSize: 10 },
+      },
+    ],
+    series: [...spreadSeries, ...annDiffSeries],
+  }, true);
+}
+
+// 时间范围按钮绑定
+document.getElementById('rangeBtns').addEventListener('click', function(e) {
+  const btn = e.target.closest('.rb');
+  if (!btn) return;
+  this.querySelectorAll('.rb').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderHistChartRange(parseInt(btn.dataset.range));
+});
+
+// 品种按钮：toggle显示/隐藏
+document.getElementById('prodBtns').addEventListener('click', function(e) {
+  const btn = e.target.closest('.pb');
+  if (!btn) return;
+  const prod = btn.dataset.prod;
+  state.histProducts[prod] = !state.histProducts[prod];
+  btn.classList.toggle('active', state.histProducts[prod]);
+  renderHistChartRange(state.histRange);
+});
+
+// IM具体合约按钮
+document.getElementById('imContractBtns').addEventListener('click', function(e) {
+  const btn = e.target.closest('.im-contract');
+  if (!btn) return;
+  const c = btn.dataset.contract;
+  state.histImContracts[c] = !state.histImContracts[c];
+  btn.classList.toggle('active', state.histImContracts[c]);
+  renderHistChartRange(state.histRange);
+});
+
+// ===== 主刷新流程 =====
+async function refresh() {
+  try {
+    const data = await fetchQuotes();
+    render(data);
+  } catch (e) {
+    console.error('Refresh failed:', e);
+    document.getElementById('updateTime').textContent = '请求失败';
+  }
+}
+
+function toggleAuto() {
+  state.auto = !state.auto;
+  const btn = document.getElementById('btnAuto');
+  const dot = document.getElementById('liveDot');
+  const txt = document.getElementById('liveText');
+  if (state.auto) {
+    btn.classList.add('active');
+    btn.textContent = '自动刷新 5s';
+    dot.classList.remove('paused');
+    txt.textContent = '实时';
+    state.timer = setInterval(refresh, 5000);
+  } else {
+    btn.classList.remove('active');
+    btn.textContent = '已暂停';
+    dot.classList.add('paused');
+    txt.textContent = '已暂停';
+    clearInterval(state.timer);
+  }
+}
+
+// ===== 初始化 =====
+(async function init() {
+  await discoverContracts();
+  await refresh();
+  fetchHistory().catch(e => console.warn('History load failed:', e)); // 异步加载历史K线，不阻塞实时数据
+  state.timer = setInterval(refresh, 5000);
+  window.addEventListener('resize', () => {
+    state.chartCurve && state.chartCurve.resize();
+    state.chartHist && state.chartHist.resize();
+    state.chartRoll && state.chartRoll.resize();
+  });
+})();
+</script>
+</body>
+</html>
